@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <assert.h>
+#include <string.h>
 
 /* To Go in Header */
 
@@ -16,9 +17,19 @@ typedef enum {
 } SkipListKeyComparisonResult;
 
 typedef SkipListKeyComparisonResult (*SkipListKeyCompare) (void *key);
+typedef void *(*SkipListKeyRetain) (void *key);
+typedef void (*SkipListKeyRelease) (void *key);
+typedef void *(*SkipListValueRetain) (void *value);
+typedef void (*SkipListValueRelease) (void *value); 
 
 typedef struct _SkipListFunctions {
-  SkipListKeyComparisonResult keyCompare;
+  SkipListKeyCompare keyCompare;
+  // The following retain/release functions can be set to NULL if you want to do your own memory management.
+  // However, if you remove a key/value from the list or destroy the list, you may lose references to your memory.
+  SkipListKeyRetain keyRetain;  
+  SkipListKeyRelease keyRelease;
+  SkipListValueRetain valueRetain;
+  SkipListValueRelease valueRelease;
 } SkipListFunctions;
 
 typedef struct _SkipList *SkipListRef;
@@ -26,11 +37,11 @@ typedef struct _SkipList *SkipListRef;
 /* End Header */
 
 #pragma mark -
-#pragma mark Types
+#pragma mark Private Types
 
 typedef struct _SkipListNode *SkipListNodeRef;
 
-// The next struct is internal and shoul never be exposed through the API
+// The next struct is internal and should never be exposed through the API
 typedef struct _SkipListNext {
   SkipListNodeRef next; // The direct neighbor
   long numSkips;
@@ -56,19 +67,36 @@ typedef struct _SkipList {
 #pragma mark -
 #pragma mark SkipListNode
 
-SkipListNode *SkipListNodeCreate(void *key, void *value) {
-
+static SkipListNode *SkipListNodeCreate(SkipList *list, void *key, void *value) {
+  SkipListNode *node = malloc(sizeof(SkipListNode));
+  node->key = key;
+  node->value = value;
+  if (list->functions.keyRetain) {
+    list->functions.keyRetain(key);
+  }
+  if (list->functions.valueRetain) {
+    list->functions.valueRetain(value);
+  }
+  return node;
 }
 
-void SkipListNodeDestroy(SkipList *list, SkipListNode *node) {
-
+static void SkipListNodeDestroy(SkipList *list, SkipListNode *node) {
+  assert(node);
+  if (list->functions.keyRelease) {
+    list->functions.keyRelease(node->key);
+  }
+  if (list->functions.valueRelease) {
+    list->functions.valueRelease(node->value);
+  }
+  free(node);
 }
 
 #pragma mark -
 #pragma mark SkipList
 
-SkipList *SkipListCreate() {
+SkipList *SkipListCreate(SkipListFunctions *functions) {
   SkipList *list = malloc(sizeof(SkipList));
+  memcpy(&(list->functions), functions, sizeof(SkipListFunctions));
   return list;
 }
 
@@ -91,8 +119,14 @@ void SkipListGetNextKeyValue(SkipListRef list, void **key, void **value) {
 }
 
 // Should be O(ln n)
-void SkipListFind(SkipListRef list, void *key, void **value) {
-  
+void *SkipListFind(SkipListRef list, void *key) {
+  // Check the curreny bookmark (why not?)
+  if (list->bookmark != NULL && (list->bookmark->key == key)) {
+    return list->bookmark->value;
+  }
+
+  // It's not the bookmark, so perform the normal search algorithm
+
 }
 
 void SkipListDestroy(SkipList *list) {
